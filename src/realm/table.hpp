@@ -210,6 +210,7 @@ public:
     size_t add_column_link(DataType type, StringData name, Table& target, LinkType link_type = link_Weak);
     void insert_column_link(size_t column_ndx, DataType type, StringData name, Table& target,
                             LinkType link_type = link_Weak);
+    void add_column_key(size_t from_ndx = realm::npos);
     void remove_column(size_t column_ndx);
     void rename_column(size_t column_ndx, StringData new_name);
     //@}
@@ -344,6 +345,7 @@ public:
     RowExpr get(size_t row_ndx) noexcept;
     ConstRowExpr get(size_t row_ndx) const noexcept;
 
+    Obj get_object(Key key);
     RowExpr front() noexcept;
     ConstRowExpr front() const noexcept;
 
@@ -377,9 +379,11 @@ public:
     size_t add_empty_row(size_t num_rows = 1);
     void insert_empty_row(size_t row_ndx, size_t num_rows = 1);
     size_t add_row_with_key(size_t col_ndx, int64_t key);
+    Key add_object(util::Optional<Key> key = {});
     void remove(size_t row_ndx);
     void remove_last();
     void move_last_over(size_t row_ndx);
+    void remove_object(Key key);
     void clear();
     void swap_rows(size_t row_ndx_1, size_t row_ndx_2);
     //@}
@@ -1000,6 +1004,7 @@ private:
     };
 
     SpecPtr m_spec; // 1st slot in m_top (for root tables)
+    IntegerColumn m_keys; // 3rd slot in m_top (for root tables)
 
     // Is guaranteed to be empty for a detached accessor. Otherwise it is empty
     // when the table accessor is attached to a degenerate subtable (unattached
@@ -1820,6 +1825,7 @@ private:
 inline Table::Table(Allocator& alloc)
     : m_top(alloc)
     , m_columns(alloc)
+    , m_keys(IntegerColumn::unattached_root_tag(), alloc)
 {
     m_ref_count = 1; // Explicitly managed lifetime
 
@@ -1832,6 +1838,7 @@ inline Table::Table(Allocator& alloc)
 inline Table::Table(const Table& t, Allocator& alloc)
     : m_top(alloc)
     , m_columns(alloc)
+    , m_keys(IntegerColumn::unattached_root_tag(), alloc)
 {
     m_ref_count = 1; // Explicitly managed lifetime
 
@@ -1844,6 +1851,7 @@ inline Table::Table(const Table& t, Allocator& alloc)
 inline Table::Table(ref_count_tag, Allocator& alloc)
     : m_top(alloc)
     , m_columns(alloc)
+    , m_keys(IntegerColumn::unattached_root_tag(), alloc)
 {
     m_ref_count = 0; // Lifetime managed by reference counting
 }

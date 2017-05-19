@@ -8231,4 +8231,29 @@ TEST(Table_KeyRow)
     CHECK_EQUAL(i, 1);
 }
 
+TEST(Table_KeyColumn)
+{
+    Table t;
+    t.add_column(type_String, "strings");
+    t.add_column_key();
+
+    Key k1 = t.add_object();
+    t.add_object();
+    Key k3 = t.add_object();
+    {
+        Obj o = t.get_object(k3);
+        o.set(0, StringData("hello"));
+    }
+    t.remove_object(k1); // This will relocate k3
+    {
+        Obj o = t.get_object(k3);
+        CHECK_EQUAL(o.get<StringData>(0), "hello");
+    }
+    t.add_object(); // This will move k3 back
+    {
+        Obj o = t.get_object(k3);
+        CHECK_EQUAL(o.get<StringData>(0), "hello");
+    }
+}
+
 #endif // TEST_TABLE
