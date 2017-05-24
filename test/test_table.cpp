@@ -8251,7 +8251,7 @@ TEST(Table_KeyColumn)
     }
     t.add_object(); // This will move k3 back
     {
-        Obj o = t.get_object(k3);
+        ConstObj o = t.get_object(k3);
         CHECK_EQUAL(o.get<StringData>(0), "hello");
     }
     for (int i = 0; i < 10; i++) {
