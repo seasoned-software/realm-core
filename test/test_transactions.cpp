@@ -789,7 +789,6 @@ TEST(Transactions_KeyColumn_assigned)
 
     TableRef t = g.insert_table(0, "t0");
     t->add_column(type_String, "strings");
-    t->add_column_key();
     Key k1 = t->add_object();
     t->add_object();
     Key k3 = t->add_object();
@@ -818,7 +817,7 @@ TEST(Transactions_KeyColumn_assigned)
         CHECK_EQUAL(o.get<StringData>(0), "Hello");
         bool ok = false;
         try {
-            Obj x = g.get_table(0)->get_object(Key(1));
+            g.get_table(0)->get_object(k1);
         }
         catch (const IllegalKey&) {
             ok = true;
@@ -837,7 +836,7 @@ TEST(Transactions_KeyColumn_user)
 
     TableRef t = g.insert_table(0, "t0");
     t->add_column(type_String, "strings");
-    t->add_column_key(Table::KeyType::user);
+    t->user_assigned_keys();
     t->add_object(Key(1));
     t->add_object(Key(2));
     t->add_object(Key(3));
@@ -866,7 +865,7 @@ TEST(Transactions_KeyColumn_user)
         CHECK_EQUAL(o.get<StringData>(0), "Hello");
         bool ok = false;
         try {
-            Obj x = g.get_table(0)->get_object(Key(1));
+            g.get_table(0)->get_object(Key(1));
         }
         catch (const IllegalKey&) {
             ok = true;
