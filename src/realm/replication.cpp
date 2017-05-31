@@ -308,7 +308,7 @@ public:
         return true;
     }
 
-    bool add_object(Key key)
+    bool create_object(Key key)
     {
         if (REALM_UNLIKELY(REALM_COVER_NEVER(!m_table)))
             return false;
