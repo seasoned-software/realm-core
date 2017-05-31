@@ -218,7 +218,9 @@ public:
         column_does_not_exist,
 
         /// You can not add index on a subtable of a subtable
-        subtable_of_subtable_index
+        subtable_of_subtable_index,
+        // Using an interface that requires a key column to be present
+        table_has_no_key_column
     };
 
     LogicError(ErrorKind message);

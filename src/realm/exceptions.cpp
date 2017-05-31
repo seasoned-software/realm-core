@@ -91,6 +91,8 @@ const char* LogicError::what() const noexcept
             return "Column does not exist";
         case subtable_of_subtable_index:
             return "Search index on a subtable of a subtable is not yet supported";
+        case table_has_no_key_column:
+            return "Table has no key column";
     }
     return "Unknown error";
 }
