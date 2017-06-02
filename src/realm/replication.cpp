@@ -224,7 +224,7 @@ public:
                 log("table->set_link(%1, %2, %3);", col_ndx, row_ndx, target_row_ndx); // Throws
             }
             typedef _impl::TableFriend tf;
-            tf::do_set_link(*m_table, col_ndx, row_ndx, target_row_ndx); // Throws
+            tf::do_set_link(*m_table, col_ndx, row_ndx, Key(target_row_ndx)); // Throws
             return true;
         }
         return false;
@@ -642,7 +642,7 @@ public:
         static_cast<void>(prior_size);
         log("link_list->set(%1, %2);", link_ndx, value); // Throws
         typedef _impl::LinkListFriend llf;
-        llf::do_set(*m_link_list, link_ndx, value); // Throws
+        llf::do_set(*m_link_list, link_ndx, Key(value)); // Throws
         return true;
     }
 
@@ -656,7 +656,7 @@ public:
             return false;
         static_cast<void>(prior_size);
         log("link_list->insert(%1, %2);", link_ndx, value); // Throws
-        m_link_list->insert(link_ndx, value);               // Throws
+        m_link_list->insert(link_ndx, Key(value));          // Throws
         return true;
     }
 
