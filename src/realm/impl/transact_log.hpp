@@ -83,9 +83,9 @@ enum Instruction {
     instr_AddRowWithKey = 40,   // Insert a row with a given key
 };
 
-class TransactLogStream {
+class LogStream {
 public:
-    /// Ensure contiguous free space in the transaction log
+    /// Ensure contiguous free space in the log
     /// buffer. This method must update `out_free_begin`
     /// and `out_free_end` such that they refer to a chunk
     /// of free space whose size is at least \a n.
@@ -93,9 +93,9 @@ public:
     /// \param n The required amount of contiguous free space. Must be
     /// small (probably not greater than 1024)
     /// \param n Must be small (probably not greater than 1024)
-    virtual void transact_log_reserve(size_t size, char** out_free_begin, char** out_free_end) = 0;
+    virtual void log_reserve(size_t size, char** out_free_begin, char** out_free_end) = 0;
 
-    /// Copy the specified data into the transaction log buffer. This
+    /// Copy the specified data into the log buffer. This
     /// function should be called only when the specified data does
     /// not fit inside the chunk of free space currently referred to
     /// by `out_free_begin` and `out_free_end`.
@@ -103,15 +103,15 @@ public:
     /// This method must update `out_begin` and
     /// `out_end` such that, upon return, they still
     /// refer to a (possibly empty) chunk of free space.
-    virtual void transact_log_append(const char* data, size_t size, char** out_free_begin, char** out_free_end) = 0;
+    virtual void log_append(const char* data, size_t size, char** out_free_begin, char** out_free_end) = 0;
 };
 
-class TransactLogBufferStream : public TransactLogStream {
+class LogBufferStream : public LogStream {
 public:
-    void transact_log_reserve(size_t size, char** out_free_begin, char** out_free_end) override;
-    void transact_log_append(const char* data, size_t size, char** out_free_begin, char** out_free_end) override;
+    void log_reserve(size_t size, char** out_free_begin, char** out_free_end) override;
+    void log_append(const char* data, size_t size, char** out_free_begin, char** out_free_end) override;
 
-    const char* transact_log_data() const;
+    const char* log_data() const;
 
     util::Buffer<char> m_buffer;
 };
@@ -326,9 +326,93 @@ public:
 // LCOV_EXCL_STOP (NullInstructionObserver)
 
 
+class GenericLogEncoder {
+public:
+    GenericLogEncoder(LogStream& out_stream);
+
+    void set_buffer(char* new_free_begin, char* new_free_end);
+    char* write_position() const
+    {
+        return m_log_free_begin;
+    }
+
+protected:
+    using IntegerList = std::tuple<IntegerColumnIterator, IntegerColumnIterator>;
+    using UnsignedList = std::tuple<const size_t*, const size_t*>;
+
+    // Make sure this is in agreement with the actual integer encoding
+    // scheme (see encode_int()).
+    static constexpr int max_enc_bytes_per_int = 10;
+    static constexpr int max_enc_bytes_per_double = sizeof(double);
+    static constexpr int max_enc_bytes_per_num =
+    max_enc_bytes_per_int < max_enc_bytes_per_double ? max_enc_bytes_per_double : max_enc_bytes_per_int;
+    // Space is reserved in chunks to avoid excessive over allocation.
+#ifdef REALM_DEBUG
+    static constexpr int max_numbers_per_chunk = 2; // Increase the chance of chunking in debug mode
+#else
+    static constexpr int max_numbers_per_chunk = 8;
+#endif
+
+    // This value is used in Set* instructions in place of the 'type' field in
+    // the stream to indicate that the value of the Set* instruction is NULL,
+    // which doesn't have a type.
+    static constexpr int set_null_sentinel()
+    {
+        return -1;
+    }
+
+    LogStream& m_stream;
+
+    // These two delimit a contiguous region of free space in a
+    // transaction log buffer following the last written data. It may
+    // be empty.
+    char* m_log_free_begin = nullptr;
+    char* m_log_free_end = nullptr;
+
+    char* reserve(size_t size);
+    /// \param ptr Must be in the range [m_log_free_begin, m_log_free_end]
+    void advance(char* ptr) noexcept;
+
+    template <class T>
+    size_t max_size(T);
+
+    size_t max_size_list()
+    {
+        return 0;
+    }
+
+    template <class T, class... Args>
+    size_t max_size_list(T val, Args... args)
+    {
+        return max_size(val) + max_size_list(args...);
+    }
+
+    template <class T>
+    char* encode(char* ptr, T value);
+
+    char* encode_list(char* ptr)
+    {
+        advance(ptr);
+        return ptr;
+    }
+
+    template <class T, class... Args>
+    char* encode_list(char* ptr, T value, Args... args)
+    {
+        return encode_list(encode(ptr, value), args...);
+    }
+
+    template <class... L>
+    void append_simple_instr(L... numbers);
+
+    template <class T>
+    static char* encode_int(char*, T value);
+
+};
+
 /// See TransactLogConvenientEncoder for information about the meaning of the
 /// arguments of each of the functions in this class.
-class TransactLogEncoder {
+class TransactLogEncoder : public GenericLogEncoder {
 public:
     /// The following methods are also those that TransactLogParser expects
     /// to find on the `InstructionHandler`.
@@ -394,87 +478,11 @@ public:
     /// End of methods expected by parser.
 
 
-    TransactLogEncoder(TransactLogStream& out_stream);
-    void set_buffer(char* new_free_begin, char* new_free_end);
-    char* write_position() const
-    {
-        return m_transact_log_free_begin;
-    }
-
+    TransactLogEncoder(LogStream& out_stream);
 private:
-    using IntegerList = std::tuple<IntegerColumnIterator, IntegerColumnIterator>;
-    using UnsignedList = std::tuple<const size_t*, const size_t*>;
-
-    // Make sure this is in agreement with the actual integer encoding
-    // scheme (see encode_int()).
-    static constexpr int max_enc_bytes_per_int = 10;
-    static constexpr int max_enc_bytes_per_double = sizeof(double);
-    static constexpr int max_enc_bytes_per_num =
-        max_enc_bytes_per_int < max_enc_bytes_per_double ? max_enc_bytes_per_double : max_enc_bytes_per_int;
-// Space is reserved in chunks to avoid excessive over allocation.
-#ifdef REALM_DEBUG
-    static constexpr int max_numbers_per_chunk = 2; // Increase the chance of chunking in debug mode
-#else
-    static constexpr int max_numbers_per_chunk = 8;
-#endif
-
-    // This value is used in Set* instructions in place of the 'type' field in
-    // the stream to indicate that the value of the Set* instruction is NULL,
-    // which doesn't have a type.
-    static constexpr int set_null_sentinel()
-    {
-        return -1;
-    }
-
-    TransactLogStream& m_stream;
-
-    // These two delimit a contiguous region of free space in a
-    // transaction log buffer following the last written data. It may
-    // be empty.
-    char* m_transact_log_free_begin = nullptr;
-    char* m_transact_log_free_end = nullptr;
-
-    char* reserve(size_t size);
-    /// \param ptr Must be in the range [m_transact_log_free_begin, m_transact_log_free_end]
-    void advance(char* ptr) noexcept;
-
-    template <class T>
-    size_t max_size(T);
-
-    size_t max_size_list()
-    {
-        return 0;
-    }
-
-    template <class T, class... Args>
-    size_t max_size_list(T val, Args... args)
-    {
-        return max_size(val) + max_size_list(args...);
-    }
-
-    template <class T>
-    char* encode(char* ptr, T value);
-
-    char* encode_list(char* ptr)
-    {
-        advance(ptr);
-        return ptr;
-    }
-
-    template <class T, class... Args>
-    char* encode_list(char* ptr, T value, Args... args)
-    {
-        return encode_list(encode(ptr, value), args...);
-    }
-
-    template <class... L>
-    void append_simple_instr(L... numbers);
-
     template <class... L>
     void append_mixed_instr(Instruction instr, const Mixed& value, L... numbers);
 
-    template <class T>
-    static char* encode_int(char*, T value);
     friend class TransactLogParser;
 };
 
@@ -554,7 +562,7 @@ public:
     void on_link_list_destroyed(const LinkView&) noexcept;
 
 protected:
-    TransactLogConvenientEncoder(TransactLogStream& encoder);
+    TransactLogConvenientEncoder(LogStream& encoder);
 
     void reset_selection_caches() noexcept;
     void set_buffer(char* new_free_begin, char* new_free_end)
@@ -670,7 +678,7 @@ public:
 
 /// Implementation:
 
-inline void TransactLogBufferStream::transact_log_reserve(size_t n, char** inout_new_begin, char** out_new_end)
+inline void LogBufferStream::log_reserve(size_t n, char** inout_new_begin, char** out_new_end)
 {
     char* data = m_buffer.data();
     REALM_ASSERT(*inout_new_begin >= data);
@@ -682,28 +690,33 @@ inline void TransactLogBufferStream::transact_log_reserve(size_t n, char** inout
     *out_new_end = data + m_buffer.size();
 }
 
-inline void TransactLogBufferStream::transact_log_append(const char* data, size_t size, char** out_new_begin,
+inline void LogBufferStream::log_append(const char* data, size_t size, char** out_new_begin,
                                                          char** out_new_end)
 {
-    transact_log_reserve(size, out_new_begin, out_new_end);
+    log_reserve(size, out_new_begin, out_new_end);
     *out_new_begin = realm::safe_copy_n(data, size, *out_new_begin);
 }
 
-inline const char* TransactLogBufferStream::transact_log_data() const
+inline const char* LogBufferStream::log_data() const
 {
     return m_buffer.data();
 }
 
-inline TransactLogEncoder::TransactLogEncoder(TransactLogStream& stream)
-    : m_stream(stream)
+inline TransactLogEncoder::TransactLogEncoder(LogStream& stream)
+    : realm::_impl::GenericLogEncoder(stream)
 {
 }
 
-inline void TransactLogEncoder::set_buffer(char* free_begin, char* free_end)
+inline GenericLogEncoder::GenericLogEncoder(LogStream& stream)
+: m_stream(stream)
+{
+}
+
+inline void GenericLogEncoder::set_buffer(char* free_begin, char* free_end)
 {
     REALM_ASSERT(free_begin <= free_end);
-    m_transact_log_free_begin = free_begin;
-    m_transact_log_free_end = free_end;
+    m_log_free_begin = free_begin;
+    m_log_free_end = free_end;
 }
 
 inline void TransactLogConvenientEncoder::reset_selection_caches() noexcept
@@ -711,19 +724,19 @@ inline void TransactLogConvenientEncoder::reset_selection_caches() noexcept
     unselect_all();
 }
 
-inline char* TransactLogEncoder::reserve(size_t n)
+inline char* GenericLogEncoder::reserve(size_t n)
 {
-    if (size_t(m_transact_log_free_end - m_transact_log_free_begin) < n) {
-        m_stream.transact_log_reserve(n, &m_transact_log_free_begin, &m_transact_log_free_end);
+    if (size_t(m_log_free_end - m_log_free_begin) < n) {
+        m_stream.log_reserve(n, &m_log_free_begin, &m_log_free_end);
     }
-    return m_transact_log_free_begin;
+    return m_log_free_begin;
 }
 
-inline void TransactLogEncoder::advance(char* ptr) noexcept
+inline void GenericLogEncoder::advance(char* ptr) noexcept
 {
-    REALM_ASSERT_DEBUG(m_transact_log_free_begin <= ptr);
-    REALM_ASSERT_DEBUG(ptr <= m_transact_log_free_end);
-    m_transact_log_free_begin = ptr;
+    REALM_ASSERT_DEBUG(m_log_free_begin <= ptr);
+    REALM_ASSERT_DEBUG(ptr <= m_log_free_end);
+    m_log_free_begin = ptr;
 }
 
 
@@ -766,7 +779,7 @@ inline void TransactLogEncoder::advance(char* ptr) noexcept
 //     uint64_t      64             65             10
 //
 template <class T>
-char* TransactLogEncoder::encode_int(char* ptr, T value)
+char* GenericLogEncoder::encode_int(char* ptr, T value)
 {
     static_assert(std::numeric_limits<T>::is_integer, "Integer required");
     bool negative = util::is_negative(value);
@@ -807,14 +820,14 @@ char* TransactLogEncoder::encode_int(char* ptr, T value)
 }
 
 template <class T>
-char* TransactLogEncoder::encode(char* ptr, T value)
+char* GenericLogEncoder::encode(char* ptr, T value)
 {
     auto value_2 = value + 0; // Perform integral promotion
     return encode_int(ptr, value_2);
 }
 
 template <>
-inline char* TransactLogEncoder::encode<char>(char* ptr, char value)
+inline char* GenericLogEncoder::encode<char>(char* ptr, char value)
 {
     // Write the char as-is without encoding.
     *ptr++ = value;
@@ -822,19 +835,19 @@ inline char* TransactLogEncoder::encode<char>(char* ptr, char value)
 }
 
 template <>
-inline char* TransactLogEncoder::encode<Instruction>(char* ptr, Instruction inst)
+inline char* GenericLogEncoder::encode<Instruction>(char* ptr, Instruction inst)
 {
     return encode<char>(ptr, inst);
 }
 
 template <>
-inline char* TransactLogEncoder::encode<bool>(char* ptr, bool value)
+inline char* GenericLogEncoder::encode<bool>(char* ptr, bool value)
 {
     return encode<char>(ptr, value);
 }
 
 template <>
-inline char* TransactLogEncoder::encode<float>(char* ptr, float value)
+inline char* GenericLogEncoder::encode<float>(char* ptr, float value)
 {
     static_assert(std::numeric_limits<float>::is_iec559 &&
                       sizeof(float) * std::numeric_limits<unsigned char>::digits == 32,
@@ -844,7 +857,7 @@ inline char* TransactLogEncoder::encode<float>(char* ptr, float value)
 }
 
 template <>
-inline char* TransactLogEncoder::encode<double>(char* ptr, double value)
+inline char* GenericLogEncoder::encode<double>(char* ptr, double value)
 {
     static_assert(std::numeric_limits<double>::is_iec559 &&
                       sizeof(double) * std::numeric_limits<unsigned char>::digits == 64,
@@ -854,20 +867,20 @@ inline char* TransactLogEncoder::encode<double>(char* ptr, double value)
 }
 
 template <>
-inline char* TransactLogEncoder::encode<DataType>(char* ptr, DataType type)
+inline char* GenericLogEncoder::encode<DataType>(char* ptr, DataType type)
 {
     return encode<char>(ptr, type);
 }
 
 template <>
-inline char* TransactLogEncoder::encode<StringData>(char* ptr, StringData s)
+inline char* GenericLogEncoder::encode<StringData>(char* ptr, StringData s)
 {
     ptr = encode_int(ptr, s.size());
     return std::copy_n(s.data(), s.size(), ptr);
 }
 
 template <>
-inline char* TransactLogEncoder::encode<TransactLogEncoder::IntegerList>(char* ptr,
+inline char* GenericLogEncoder::encode<TransactLogEncoder::IntegerList>(char* ptr,
                                                                          TransactLogEncoder::IntegerList list)
 {
     IntegerColumnIterator i = std::get<0>(list);
@@ -888,7 +901,7 @@ inline char* TransactLogEncoder::encode<TransactLogEncoder::IntegerList>(char* p
 }
 
 template <>
-inline char* TransactLogEncoder::encode<TransactLogEncoder::UnsignedList>(char* ptr,
+inline char* GenericLogEncoder::encode<TransactLogEncoder::UnsignedList>(char* ptr,
                                                                           TransactLogEncoder::UnsignedList list)
 {
     const size_t* i = std::get<0>(list);
@@ -901,50 +914,50 @@ inline char* TransactLogEncoder::encode<TransactLogEncoder::UnsignedList>(char* 
 }
 
 template <class T>
-size_t TransactLogEncoder::max_size(T)
+size_t GenericLogEncoder::max_size(T)
 {
     return max_enc_bytes_per_num;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size(char)
+inline size_t GenericLogEncoder::max_size(char)
 {
     return 1;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size(bool)
+inline size_t GenericLogEncoder::max_size(bool)
 {
     return 1;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size(Instruction)
+inline size_t GenericLogEncoder::max_size(Instruction)
 {
     return 1;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size(DataType)
+inline size_t GenericLogEncoder::max_size(DataType)
 {
     return 1;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size(StringData s)
+inline size_t GenericLogEncoder::max_size(StringData s)
 {
     return max_enc_bytes_per_num + s.size();
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size<TransactLogEncoder::IntegerList>(IntegerList)
+inline size_t GenericLogEncoder::max_size<GenericLogEncoder::IntegerList>(IntegerList)
 {
     // We only allocate space for 'max_numbers_per_chunk' at a time
     return max_enc_bytes_per_num * max_numbers_per_chunk;
 }
 
 template <>
-inline size_t TransactLogEncoder::max_size<TransactLogEncoder::UnsignedList>(UnsignedList list)
+inline size_t GenericLogEncoder::max_size<GenericLogEncoder::UnsignedList>(UnsignedList list)
 {
     const size_t* begin = std::get<0>(list);
     const size_t* end = std::get<1>(list);
@@ -953,7 +966,7 @@ inline size_t TransactLogEncoder::max_size<TransactLogEncoder::UnsignedList>(Uns
 }
 
 template <class... L>
-void TransactLogEncoder::append_simple_instr(L... numbers)
+void GenericLogEncoder::append_simple_instr(L... numbers)
 {
     size_t max_required_bytes = max_size_list(numbers...);
     char* ptr = reserve(max_required_bytes); // Throws
@@ -2760,7 +2773,7 @@ public:
     }
 
 private:
-    _impl::TransactLogBufferStream m_buffer;
+    _impl::LogBufferStream m_buffer;
     _impl::TransactLogEncoder m_encoder{m_buffer};
     struct Instr {
         size_t begin;
@@ -2783,8 +2796,8 @@ private:
 
     size_t transact_log_size() const
     {
-        REALM_ASSERT_3(m_encoder.write_position(), >=, m_buffer.transact_log_data());
-        return m_encoder.write_position() - m_buffer.transact_log_data();
+        REALM_ASSERT_3(m_encoder.write_position(), >=, m_buffer.log_data());
+        return m_encoder.write_position() - m_buffer.log_data();
     }
 
     void append_instruction()
@@ -2834,7 +2847,7 @@ public:
         // push any pending select_table or select_descriptor into the buffer
         reverser.sync_table();
 
-        m_buffer = reverser.m_buffer.transact_log_data();
+        m_buffer = reverser.m_buffer.log_data();
         m_current = m_instr_order.size();
     }
 

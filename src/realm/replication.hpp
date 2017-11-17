@@ -49,7 +49,7 @@ class Logger;
 
 /// Replication is enabled by passing an instance of an implementation of this
 /// class to the SharedGroup constructor.
-class Replication : public _impl::TransactLogConvenientEncoder, protected _impl::TransactLogStream {
+class Replication : public _impl::TransactLogConvenientEncoder, protected _impl::LogStream {
 public:
     // Be sure to keep this type aligned with what is actually used in
     // SharedGroup.
@@ -416,8 +416,8 @@ protected:
     void do_abort_transact() noexcept override;
     void do_interrupt() noexcept override;
     void do_clear_interrupt() noexcept override;
-    void transact_log_reserve(size_t n, char** new_begin, char** new_end) override;
-    void transact_log_append(const char* data, size_t size, char** new_begin, char** new_end) override;
+    void log_reserve(size_t n, char** new_begin, char** new_end) override;
+    void log_append(const char* data, size_t size, char** new_begin, char** new_end) override;
 
 private:
     const std::string m_database_file;
@@ -432,7 +432,7 @@ private:
 // Implementation:
 
 inline Replication::Replication()
-    : _impl::TransactLogConvenientEncoder(static_cast<_impl::TransactLogStream&>(*this))
+    : _impl::TransactLogConvenientEncoder(static_cast<_impl::LogStream&>(*this))
 {
 }
 
@@ -494,7 +494,7 @@ inline size_t TrivialReplication::transact_log_size()
     return write_position() - m_transact_log_buffer.data();
 }
 
-inline void TrivialReplication::transact_log_reserve(size_t n, char** new_begin, char** new_end)
+inline void TrivialReplication::log_reserve(size_t n, char** new_begin, char** new_end)
 {
     internal_transact_log_reserve(n, new_begin, new_end);
 }

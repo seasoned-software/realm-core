@@ -27,7 +27,7 @@ const size_t init_subtab_path_buf_levels = 2; // 2 table levels (soft limit)
 const size_t init_subtab_path_buf_size = 2 * init_subtab_path_buf_levels - 1;
 } // anonymous namespace
 
-TransactLogConvenientEncoder::TransactLogConvenientEncoder(TransactLogStream& stream)
+TransactLogConvenientEncoder::TransactLogConvenientEncoder(LogStream& stream)
     : m_encoder(stream)
     , m_selected_table(nullptr)
     , m_selected_spec(nullptr)

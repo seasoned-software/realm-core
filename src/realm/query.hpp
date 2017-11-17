@@ -342,6 +342,8 @@ public:
     std::string validate();
 
     std::string get_description() const;
+    std::string serialize() const;
+    std::unique_ptr<Query> deserialize(std::string stream) const;
 
 private:
     Query(Table& table, TableViewBase* tv = nullptr);

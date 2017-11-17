@@ -1578,6 +1578,16 @@ std::string Query::get_description() const
     return "";
 }
 
+std::string Query::serialize() const
+{
+
+}
+
+std::unique_ptr<Query> Query::deserialize(std::string stream) const
+{
+
+}
+
 void Query::init() const
 {
     REALM_ASSERT(m_table);
