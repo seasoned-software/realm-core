@@ -56,6 +56,7 @@ class Array;
 class Expression;
 class SequentialGetterBase;
 class Group;
+class QueryEncoder;
 
 namespace metrics {
 class QueryInfo;
@@ -342,8 +343,7 @@ public:
     std::string validate();
 
     std::string get_description() const;
-    std::string serialize() const;
-    std::unique_ptr<Query> deserialize(std::string stream) const;
+    void serialize(QueryEncoder* encoder) const;
 
 private:
     Query(Table& table, TableViewBase* tv = nullptr);

@@ -108,6 +108,7 @@ AggregateState      State of the aggregate - contains a state variable that stor
 #include <realm/metrics/query_info.hpp>
 #include <realm/query_conditions.hpp>
 #include <realm/query_operators.hpp>
+#include <realm/query_translator.hpp>
 #include <realm/table.hpp>
 #include <realm/unicode.hpp>
 #include <realm/util/miscellaneous.hpp>
@@ -299,6 +300,20 @@ public:
             s = s + " and " + m_child->describe_expression();
         }
         return s;
+    }
+
+    virtual void serialize(QueryEncoder* encoder) const
+    {
+        //FIXME: make this pure virtual so all subclasses must override
+    }
+
+    virtual void serialize_expression(QueryEncoder* encoder) const
+    {
+        serialize(encoder);
+        if (m_child) {
+            encoder->encode(QueryInstruction::instr_and);
+            m_child->serialize_expression(encoder);
+        }
     }
 
     std::unique_ptr<ParentNode> m_child;
@@ -814,6 +829,13 @@ public:
     virtual std::string describe_condition() const override
     {
         return TConditionFunction::description();
+    }
+
+    virtual void serialize(QueryEncoder* encoder) const override
+    {
+        this->serialize_column(encoder);
+        encoder->serialize_condition<TConditionFunction>();
+        encoder->serialze_value(IntegerNodeBase<ColType>::m_value);
     }
 
     std::unique_ptr<ParentNode> clone(QueryNodeHandoverPatches* patches) const override

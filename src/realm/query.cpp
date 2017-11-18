@@ -25,6 +25,7 @@
 #include <realm/link_view.hpp>
 #include <realm/query_engine.hpp>
 #include <realm/query_expression.hpp>
+#include <realm/query_translator.hpp>
 #include <realm/table_view.hpp>
 
 #include <algorithm>
@@ -1578,14 +1579,11 @@ std::string Query::get_description() const
     return "";
 }
 
-std::string Query::serialize() const
+void Query::serialize(QueryEncoder* encoder) const
 {
-
-}
-
-std::unique_ptr<Query> Query::deserialize(std::string stream) const
-{
-
+    if (root_node()) {
+        root_node()->serialize_expression(encoder);
+    }
 }
 
 void Query::init() const
