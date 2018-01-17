@@ -118,13 +118,15 @@ REALM_NORETURN static void terminate_internal(std::stringstream& ss) noexcept
 
     ss << "IMPORTANT: if you see this error, please send this log to help@realm.io.";
 
-    std::cerr << ss.rdbuf() << '\n';
-    std::string thread_name;
-    if (Thread::get_name(thread_name))
-        std::cerr << "Thread name: " << thread_name << "\n";
-
     if (termination_notification_callback) {
         termination_notification_callback(ss.str().c_str());
+    }
+    else {
+        std::cerr << ss.rdbuf() << '\n';
+        std::string thread_name;
+        if (Thread::get_name(thread_name))
+            std::cerr << "Thread name: " << thread_name << "\n";
+
     }
 
     please_report_this_error_to_help_at_realm_dot_io();
