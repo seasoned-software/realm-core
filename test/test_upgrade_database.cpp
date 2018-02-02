@@ -41,7 +41,7 @@
 using namespace realm;
 using namespace realm::util;
 
-#define TEST_READ_UPGRADE_MODE 1 // set to 0 when using this in an older version of core to write new tests files
+#define TEST_READ_UPGRADE_MODE 0 // set to 0 when using this in an older version of core to write new tests files
 
 // Test independence and thread-safety
 // -----------------------------------
@@ -1330,6 +1330,121 @@ TEST_IF(Upgrade_Database_8_9, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZ
     size_t row = t->add_empty_row();
     t->set_int(col, row, 123);
     t->set_string(str_col, row, validation_str);
+    g.write(path);
+#endif // TEST_READ_UPGRADE_MODE
+}
+
+TEST_IF(Upgrade_Database_9_10, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE == 1000)
+{
+    std::string path = test_util::get_test_resource_path() + "test_upgrade_database_" +
+                       util::to_string(REALM_MAX_BPNODE_SIZE) + "_9_to_10.realm";
+    std::string validation_str = "test string";
+#if TEST_READ_UPGRADE_MODE
+
+    // Automatic upgrade from SharedGroup
+    {
+        CHECK_OR_RETURN(File::exists(path));
+        SHARED_GROUP_TEST_PATH(temp_copy);
+
+        // Make a copy of the version 9 database so that we keep the
+        // original file intact and unmodified
+        File::copy(path, temp_copy);
+
+        // Constructing this SharedGroup will trigger an upgrade
+        auto hist = make_in_realm_history(temp_copy);
+        SharedGroup sg(*hist);
+
+        ReadTransaction rt(sg);
+        CHECK_EQUAL(_impl::GroupFriend::get_history_schema_version(rt.get_group()),
+                    hist->get_history_schema_version());
+
+        ConstTableRef t = rt.get_table("table");
+        CHECK(t);
+        CHECK_EQUAL(t->size(), 1);
+        CHECK_EQUAL(t->get_int(0, 0), 123);
+        CHECK_EQUAL(t->get_string(1, 0), validation_str);
+    }
+
+    // Opening old file with Group
+    {
+        CHECK_OR_RETURN(File::exists(path));
+
+        // Opening in read-only mode, so it doesn't upgrade
+        Group g(path);
+        CHECK_EQUAL(_impl::GroupFriend::get_history_schema_version(g), 0);
+        CHECK_EQUAL(_impl::GroupFriend::get_file_format_version(g), 8);
+
+        ConstTableRef t = g.get_table("table");
+        CHECK(t);
+        CHECK_EQUAL(t->size(), 1);
+        CHECK_EQUAL(t->get_int(0, 0), 123);
+        CHECK_EQUAL(t->get_string(1, 0), validation_str);
+    }
+
+#else  // test write mode
+    // NOTE: This code must be executed from an old file-format-version 8
+    // core in order to create a file-format-version 8 test file!
+
+    Group g;
+    TableRef t = g.add_table("table");
+    size_t col_int = t->add_column(type_Int, "int");
+    size_t col_int_null = t->add_column(type_Int, "int_null", true);
+    size_t col_bool = t->add_column(type_Bool, "bool");
+    size_t col_bool_null = t->add_column(type_Bool, "bool_null", true);
+    size_t col_float = t->add_column(type_Float, "float");
+    size_t col_double = t->add_column(type_Double, "double");
+    size_t col_string = t->add_column(type_String, "string");
+    size_t col_string_i = t->add_column(type_String, "string_i");
+    size_t col_binary = t->add_column(type_Binary, "binary");
+    size_t col_date = t->add_column(type_Timestamp, "date");
+    size_t col_link = t->add_column_link(type_Link, "link", *t);
+    size_t col_linklist = t->add_column_link(type_LinkList, "linklist", *t);
+    DescriptorRef subdesc;
+    size_t col_int_list = t->add_column(type_Table, "integers", false, &subdesc);
+    subdesc->add_column(type_Int, "list", nullptr, true);
+    t->add_search_index(col_string_i);
+
+    t->add_empty_row(500);
+    for (int i = 0; i < 500; i++) {
+        if (i % 100) {
+            t->set_int(col_int, i, i);
+            t->set_int(col_int_null, i, i);
+            t->set_bool(col_bool, i, (i % 2) == 0);
+            t->set_bool(col_bool_null, i, (i % 2) == 0);
+            t->set_float(col_float, i, i * 1.5f);
+            t->set_double(col_double, i, i * 2.5);
+
+            // String
+            std::string str = "Str";
+            str = str + util::to_string(i);
+            std::string long_string = std::string("Hello, world: ") + str;
+            std::string longer_string =
+                std::string("lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum: ") + str;
+            switch (i % 3) {
+                case 0:
+                    t->set_string(col_string, i, str);
+                    t->set_string(col_string_i, i, str);
+                    break;
+                case 1:
+                    t->set_string(col_string, i, long_string);
+                    t->set_string(col_string_i, i, long_string);
+                    break;
+                case 2:
+                    t->set_string(col_string, i, longer_string);
+                    t->set_string(col_string_i, i, longer_string);
+                    break;
+                default:
+                    break;
+            }
+
+            // Binary
+            std::string bin((i % 2) * 50 + 20, 'x');
+            t->set_binary(col_binary, i, BinaryData(bin));
+
+            t->set_timestamp(col_date, i, Timestamp(100 * i, i));
+        }
+    }
+
     g.write(path);
 #endif // TEST_READ_UPGRADE_MODE
 }
